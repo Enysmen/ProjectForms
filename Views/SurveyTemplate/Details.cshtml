@@ -1,0 +1,510 @@
+﻿@using System.Security.Claims
+@using Microsoft.AspNetCore.Mvc.Localization
+@inject IViewLocalizer Localizer
+@model CursProject.Models.SurveyTemplate
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    ViewData["Title"] = "Детали шаблона";
+}
+
+@{
+    var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+    bool canManageTemplate = User.IsInRole("Administrator") || User.Identity.Name == Model.User.UserName || (Model.AllowedUsers != null && Model.AllowedUsers.Any(u => u.Id == currentUserId) || Model.IsPublic );
+}
+
+@section Scripts {
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/survey-core/survey.core.min.js"></script>
+    <script src="https://unpkg.com/survey-js-ui/survey-js-ui.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-core/survey-creator-core.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-js/survey-creator-js.min.js"></script>
+    <script src="https://unpkg.com/survey-core/themes/index.min.js"></script>
+
+    <script>
+        // Инициализация SurveyJS Creator в режиме read-only для вкладки "Общие настройки"
+        var readOnlyOptions = { showLogicTab: false, isAutoSave: false };
+        var surveyReadOnly = new SurveyCreator.SurveyCreator(readOnlyOptions);
+        surveyReadOnly.readOnly = true;
+        var jsonSchema;
+        try {
+        jsonSchema = JSON.parse(@Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(Model.JsonSchema)));
+        } catch (e) {
+        console.error("Ошибка парсинга JSON-схемы:", e);
+        jsonSchema = { title: "Новый опрос", description: "Введите описание опроса", elements: [] };
+        }
+        surveyReadOnly.JSON = jsonSchema;
+        document.addEventListener("DOMContentLoaded", function () {
+        var readonlyContainer = document.getElementById("surveyReadOnlyContainer");
+        if (readonlyContainer) {
+        surveyReadOnly.render("surveyReadOnlyContainer");
+        }
+        });
+
+        // Инициализация SurveyJS Creator в режиме редактирования для вкладки "Редактируемый набор вопросов"
+        var editOptions = { showLogicTab: true, isAutoSave: false };
+        var surveyEdit = new SurveyCreator.SurveyCreator(editOptions);
+        var jsonSchemaEdit;
+        try {
+        jsonSchemaEdit = JSON.parse(@Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(Model.JsonSchema)));
+        } catch (e) {
+        console.error("Ошибка парсинга JSON-схемы (edit):", e);
+        jsonSchemaEdit = { title: "Новый опрос", description: "Введите описание опроса", elements: [] };
+        }
+        surveyEdit.JSON = jsonSchemaEdit;
+        document.addEventListener("DOMContentLoaded", function () {
+        var editContainer = document.getElementById("surveyEditContainer");
+        if (editContainer) {
+        surveyEdit.render("surveyEditContainer");
+        }
+        });
+
+        // Обработчик для изменения доступа в режиме редактирования
+        document.getElementById("accessSettingSelect").addEventListener("change", function () {
+        var value = this.value;
+        var section = document.getElementById("accessUsersSection");
+        section.style.display = value === "false" ? "block" : "none";
+        });
+
+
+        // Обработчики для кнопок на главной части страницы (общие для шаблонов и ответов)
+        function onUserSelectChange() {
+        var selectedUserId = document.getElementById("userSelect").value;
+        window.location.href = '@Url.Action("Index", "User")' + '?userId=' + selectedUserId;
+        }
+
+                document.getElementById("saveTemplateChangesButton").addEventListener("click", function () {
+            // Получаем обновлённую JSON-схему из объекта surveyEdit
+            var updatedJson = JSON.stringify(surveyEdit.JSON);
+            // Получаем значение настройки доступа из выпадающего списка (true для Public, false для Private)
+            var accessSetting = document.getElementById("accessSettingSelect").value;
+            // Преобразуем значение в Boolean (если необходимо)
+            var isPublic = accessSetting === "true";
+
+            $.ajax({
+                url: '@Url.Action("UpdateTemplate", "SurveyTemplate")',
+                type: 'POST',
+                data: {
+                    id: '@Model.Id',
+                    jsonSchema: updatedJson,
+                    isPublic: isPublic,
+                    __RequestVerificationToken: $('input[name="__RequestVerificationToken"]').val()
+                },
+                success: function (response) {
+                    if (response.success) {
+                        alert("Изменения сохранены.");
+                        location.reload();
+                    } else {
+                        alert("Ошибка при сохранении изменений.");
+                    }
+                },
+                error: function (xhr, status, error) {
+                    alert("Ошибка при сохранении изменений: " + error);
+                }
+            });
+        });
+
+        // document.getElementById("editTemplateButton").addEventListener("click", function () {
+        //     var selected = document.querySelector(".select-template-radio:checked");
+        //     if (!selected) {
+        //         alert("Пожалуйста, выберите шаблон для редактирования.");
+        //         return;
+        //     }
+        //     var templateId = selected.getAttribute("data-template-id");
+        //     window.location.href = '@Url.Action("Edit", "SurveyTemplate")/' + templateId;
+        // });
+
+        // document.getElementById("deleteTemplateButton").addEventListener("click", function () {
+        //     var selected = document.querySelector(".select-template-radio:checked");
+        //     if (!selected) {
+        //         alert("Пожалуйста, выберите шаблон для удаления.");
+        //         return;
+        //     }
+        //     if (!confirm("Вы уверены, что хотите удалить выбранный шаблон?")) {
+        //         return;
+        //     }
+        //     var templateId = selected.getAttribute("data-template-id");
+        //     $.ajax({
+        //         url: '@Url.Action("Delete", "SurveyTemplate")',
+        //         type: 'POST',
+        //         data: {
+        //             id: templateId,
+        //             __RequestVerificationToken: $('input[name="__RequestVerificationToken"]').val()
+        //         },
+        //         success: function () {
+        //             alert("Шаблон удален.");
+        //             location.reload();
+        //         },
+        //         error: function () {
+        //             alert("Ошибка при удалении шаблона.");
+        //         }
+        //     });
+        // });
+
+        // document.getElementById("viewResponsesButton").addEventListener("click", function () {
+        //     var selected = document.querySelector(".select-response-radio:checked");
+        //     if (!selected) {
+        //         alert("Пожалуйста, выберите форму для просмотра ответов.");
+        //         return;
+        //     }
+        //     var templateId = selected.getAttribute("data-template-id");
+        //     if (!templateId) {
+        //         alert("Невозможно определить шаблон для выбранной формы.");
+        //         return;
+        //     }
+        //     window.location.href = '@Url.Action("AggregatedResponses", "SurveyTemplate")/' + templateId;
+        // });
+
+        // --- Сортировка для ПЕРВОЙ таблицы (templatesTable) ---
+        // let titleSortDirection = 0;
+        // document.getElementById("sortTitleButton").addEventListener("click", function () {
+        //     titleSortDirection = titleSortDirection === 1 ? -1 : 1;
+        //     sortTemplatesByTitle(titleSortDirection);
+        // });
+
+        // function sortTemplatesByTitle(direction) {
+        //     const tableBody = document.querySelector("#templatesTable tbody");
+        //     const rows = Array.from(tableBody.querySelectorAll("tr"));
+
+        //     rows.sort((a, b) => {
+        //         const titleA = a.cells[1].innerText.trim().toLowerCase();
+        //         const titleB = b.cells[1].innerText.trim().toLowerCase();
+        //         if (titleA < titleB) return direction === 1 ? -1 : 1;
+        //         if (titleA > titleB) return direction === 1 ? 1 : -1;
+        //         return 0;
+        //     });
+
+        //     rows.forEach(row => tableBody.appendChild(row));
+        //     const sortIcon = document.getElementById("sortTitleIcon");
+        //     sortIcon.textContent = direction === 1 ? "⬆" : "⬇";
+        // }
+
+        // // --- Сортировка для ВТОРОЙ таблицы (responsesTable) ---
+        // let titleSortDirection1 = 0;
+        // document.getElementById("sortTitleButton1").addEventListener("click", function () {
+        //     titleSortDirection1 = titleSortDirection1 === 1 ? -1 : 1;
+        //     sortResponsesByTitle(titleSortDirection1);
+        // });
+
+        // function sortResponsesByTitle(direction) {
+        //     const tableBody = document.querySelector("#responsesTable tbody");
+        //     const rows = Array.from(tableBody.querySelectorAll("tr"));
+
+        //     rows.sort((a, b) => {
+        //         const titleA = a.cells[1].innerText.trim().toLowerCase();
+        //         const titleB = b.cells[1].innerText.trim().toLowerCase();
+        //         if (titleA < titleB) return direction === 1 ? -1 : 1;
+        //         if (titleA > titleB) return direction === 1 ? 1 : -1;
+        //         return 0;
+        //     });
+
+        //     rows.forEach(row => tableBody.appendChild(row));
+        //     const sortIcon1 = document.getElementById("sortTitleIcon1");
+        //     sortIcon1.textContent = direction === 1 ? "⬆" : "⬇";
+        // }
+
+        // Скрипты для лайков и комментариев (обновление комментариев каждые 5 секунд)
+        function refreshComments() {
+        $.ajax({
+        url: '@Url.Action("GetComments", "SurveyTemplate")',
+        data: { templateId: '@ViewBag.TemplateId' },
+        success: function (data) {
+        $("#commentsList").html(data);
+        }
+        });
+        }
+        setInterval(refreshComments, 5000);
+
+
+        // Обработчик для кнопки "Добавить пользователя" в настройках доступа
+        $(document).ready(function () {
+        $("#addUserButton").on("click", function (e) {
+        e.preventDefault(); // Отменяем стандартную отправку формы
+        var selectedUserId = $("#addUserSelect").val();
+        if (!selectedUserId) {
+        alert("Пожалуйста, выберите пользователя для добавления.");
+        return;
+        }
+        console.log("Кнопка 'Добавить пользователя' нажата");
+
+        // Получаем templateId из ViewBag
+        var templateId = '@ViewBag.TemplateId';
+
+        // Отправляем AJAX‑запрос на метод AddUserToTemplate
+        $.ajax({
+        url: '@Url.Action("AddUserToTemplate", "SurveyTemplate")',
+        type: 'POST',
+        data: {
+        templateId: templateId,
+        userId: selectedUserId,
+        __RequestVerificationToken: $('input[name="__RequestVerificationToken"]').val()
+        },
+        success: function (response) {
+        alert("Пользователь успешно добавлен.");
+        location.reload();
+        },
+        error: function (xhr, status, error) {
+        console.error("Ошибка AJAX:", error, xhr.responseText);
+        alert("Ошибка при добавлении пользователя.");
+        }
+        });
+        });
+        });
+
+    </script>
+}
+
+<div class="container mt-4">
+    <h2>@Model.Title</h2>
+    <p>@Model.Description</p>
+
+    <!-- Вкладки -->
+    <ul class="nav nav-tabs" id="templateTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab" aria-controls="general" aria-selected="true">
+                Общие настройки
+            </button>
+        </li>
+        @if (canManageTemplate)
+        {
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="edit-tab" data-bs-toggle="tab" data-bs-target="#edit" type="button" role="tab" aria-controls="edit" aria-selected="false">
+                    Редактируемый набор вопросов
+                </button>
+            </li>
+
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="results-tab" data-bs-toggle="tab" data-bs-target="#results" type="button" role="tab" aria-controls="results" aria-selected="false">
+                    Результаты
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="aggregation-tab" data-bs-toggle="tab" data-bs-target="#aggregation" type="button" role="tab" aria-controls="aggregation" aria-selected="false">
+                    Агрегация ответов
+                </button>
+            </li>
+        }
+    </ul>
+
+    <div class="tab-content" id="templateTabsContent">
+        <!-- Вкладка 1: Общие настройки -->
+        <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
+            <div class="mt-3">
+                <!-- SurveyJS Creator в режиме только для чтения -->
+                <div id="surveyReadOnlyContainer" style="height: 500px;"></div>
+            </div>
+            <div class="mt-4">
+                <h5>Настройки доступа</h5>
+                <div class="mb-2">
+                    <label>Доступ:</label>
+                    @if (Model.IsPublic)
+                    {
+                        <select class="form-select" disabled>
+                            <option value="true" selected="selected">Public</option>
+                        </select>
+                    }
+                    else
+                    {
+                        <select class="form-select" disabled>
+                            <option value="false" selected="selected">Private</option>
+                        </select>
+                    }
+                </div>
+                @if (!Model.IsPublic)
+                {
+                    <h6>Пользователи с доступом:</h6>
+                    <table class="table table-sm table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Имя</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in Model.AllowedUsers)
+                            {
+                                <tr>
+                                    <td>@user.Email</td>
+                                    <td>@user.UserName</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+
+            <!-- Блок для лайков -->
+            <!-- Блок для отображения лайков -->
+            <div id="likesContainer" style="margin-top:20px;">
+                <span>Лайки: <span id="likesCount">@ViewBag.LikesCount</span></span>
+                @if (User.Identity.IsAuthenticated )
+                {
+                    <form asp-controller="Survey" asp-action="ToggleLike" method="post" style="display:inline;">
+                        <input type="hidden" name="templateId" value="@ViewBag.TemplateId" />
+                        <button type="submit" class="btn btn-outline-primary">
+                            @(ViewBag.UserLiked.ToString().ToLower() == "true" ? "Убрать лайк" : "Поставить лайк")
+                        </button>
+                    </form>
+                }
+            </div>
+
+            <hr />
+
+
+            <!-- Блок для комментариев -->
+            <hr />
+            <div id="commentsContainer">
+                <h3>Комментарии</h3>
+                <div id="commentsList">
+                    @if (ViewBag.Comments != null)
+                    {
+                        foreach (var comment in ViewBag.Comments)
+                        {
+                            <div class="comment" style="border-bottom:1px solid #ccc; padding:5px 0;">
+                                <strong>@comment.User?.UserName</strong> <small>@comment.CreatedDate.ToLocalTime().ToString("g")</small>
+                                <p>@comment.CommentText</p>
+                            </div>
+                        }
+                    }
+                </div>
+            </div> 
+
+            <!-- Форма для добавления комментария (только для залогиненных пользователей) -->
+            @if (User.Identity.IsAuthenticated)
+            {
+                <form id="commentForm" asp-controller="Survey" asp-action="AddComment" method="post">
+                    <input type="hidden" name="templateId" value="@ViewBag.TemplateId" />
+                    <div class="form-group">
+                        <textarea name="commentText" class="form-control" placeholder="Добавьте комментарий" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-2">Отправить комментарий</button>
+                </form>
+            }
+            else
+            {
+                <p>Чтобы оставить комментарий, войдите в систему.</p>
+            }
+        </div> 
+
+
+
+
+        <!-- Вкладка 2: Редактируемый набор вопросов -->
+        @if (canManageTemplate)
+        {
+            <div class="tab-pane fade" id="edit" role="tabpanel" aria-labelledby="edit-tab">
+                <div class="mt-3">
+                    <!-- SurveyJS Creator в режиме редактирования -->
+                    <div id="surveyEditContainer" style="height: 500px;"></div>
+                </div>
+                <div class="mt-4">
+                    <h5>Настройки доступа</h5>
+                    <div class="mb-2">
+                        <label>Доступ:</label>
+                        @if (Model.IsPublic)
+                        {
+                            <select id="accessSettingSelect" class="form-select">
+                                <option value="true" selected="selected">Public</option>
+                                <option value="false">Private</option>
+                            </select>
+                        }
+                        else
+                        {
+                            <select id="accessSettingSelect" class="form-select">
+                                <option value="true">Public</option>
+                                <option value="false" selected="selected">Private</option>
+                            </select>
+                        }
+                    </div>
+                    <div id="accessUsersSection" style="display: @(Model.IsPublic ? "none" : "block");">
+                        <h6>Пользователи с доступом:</h6>
+                        <div class="mb-2">
+                            <label>Добавить пользователя:</label>
+                            <select id="addUserSelect" class="form-select">
+                                @foreach (var user in (List<ApplicationUser>)ViewBag.AllUsers)
+                                {  // Пропускаем, если пользователь уже имеет доступ
+                                    if (Model.AllowedUsers != null || Model.AllowedUsers.Any(u => u.Id == user.Id) || User.IsInRole("Administrator"))
+                                    {
+                                        continue;
+                                    }
+                                    // Пропускаем, если пользователь является создателем шаблона
+                                    if (user.Id == Model.User.Id)
+                                    {
+                                        continue;
+                                    }
+                                    <option value="@user.Id">@user.Email</option>
+                                }
+                            </select>
+                            <button class="btn btn-sm btn-primary mt-2" id="addUserButton" type="button">Добавить</button>
+                        </div>
+                        <table class="table table-sm table-bordered" id="accessUsersTable">
+                            <thead>
+                                <tr>
+                                    <th>Email</th>
+                                    <th>Имя</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var user in Model.AllowedUsers)
+                                {
+                                    <tr>
+                                        <td>@user.Email</td>
+                                        <td>@user.UserName</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <button class="btn btn-success mt-3" id="saveTemplateChangesButton">Сохранить изменения</button>
+                    <form asp-action="Delete" method="post" onsubmit="return confirm('Вы уверены, что хотите удалить шаблон?');" class="mt-3">
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-danger">Удалить шаблон</button>
+                    </form>
+                </div>
+            </div>
+        }
+        @if (canManageTemplate)
+        {
+            <!-- Вкладка 3: Результаты -->
+            <div class="tab-pane fade" id="results" role="tabpanel" aria-labelledby="results-tab">
+                <div class="mt-3">
+                    <h5>Список заполненных форм</h5>
+                    <table class="table table-striped table-hover" id="resultsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Форма</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var response in Model.Responses)
+                            {
+                                <tr>
+                                    <td>
+                                        <a href="@Url.Action("ViewResponse", "SurveyTemplate", new { id = response.Id })">
+                                            Форма №@response.Id, заполнена @response.SubmittedDate.ToLocalTime().ToString("g")
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (canManageTemplate)
+        {
+            <!-- Вкладка 4: Агрегация ответов -->
+            <div class="tab-pane fade" id="aggregation" role="tabpanel" aria-labelledby="aggregation-tab">
+                <div class="mt-3">
+                    <h5>Агрегация ответов</h5>
+                    <!-- Здесь можно вывести агрегированные данные, например: -->
+                    <p>Среднее значение для числовых вопросов: ...</p>
+                    <p>Наиболее частый ответ для текстовых вопросов: ...</p>
+                </div>
+            </div>
+        }
+
+    </div>
+</div>

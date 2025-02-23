@@ -1,0 +1,11 @@
+﻿@using Microsoft.AspNetCore.Mvc.Localization
+@inject IViewLocalizer Localizer
+@{
+    ViewData["Title"] = "Спасибо!";
+}
+<h2>Спасибо за заполнение формы!</h2>
+<a asp-controller="SurveyTemplate" asp-action="Index" class="btn btn-primary">Вернуться к списку форм</a>
+
+@section Scripts {
+
+}

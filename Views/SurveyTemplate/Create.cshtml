@@ -1,0 +1,167 @@
+﻿@using CursProject.Models
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Mvc.Localization
+@inject IViewLocalizer Localizer
+@model SurveyTemplate
+@{
+    ViewData["Title"] = "Создание шаблона формы";
+    // Если поле JsonSchema пустое, задаём начальное значение JSON-схемы
+    var initialSchema = string.IsNullOrEmpty(Model.JsonSchema)
+        ? Newtonsoft.Json.JsonConvert.SerializeObject(new
+        {
+            title = "Новый опрос",
+            description = "Введите описание опроса",
+            elements = new object[] { }
+        })
+        : Model.JsonSchema;
+}
+
+<h2>@ViewData["Title"]</h2>
+
+<form id="templateForm" asp-action="Create" method="post">
+    @Html.AntiForgeryToken()
+    <!-- Скрытое поле для хранения JSON-схемы -->
+    <input type="hidden" id="JsonSchema" asp-for="JsonSchema" value="@initialSchema" />
+    <!-- Скрытое поле для AllowedUserIds (записываем через запятую идентификаторы пользователей) -->
+    <input type="hidden" id="AllowedUserIds" name="AllowedUserIds" value="" />
+
+    <!-- Контейнер для SurveyJS Creator -->
+    <div id="surveyCreatorContainer" style="height: 700px;"></div>
+
+    <!-- Блок настроек доступа -->
+    <div class="form-group mt-3">
+        <label>Настройка доступа:</label>
+        <select id="accessSettingSelect" name="IsPublic" class="form-select">
+            <option value="true" selected>Public</option>
+            <option value="false">Private</option>
+        </select>
+    </div>
+
+    <!-- Блок добавления пользователей (показывается, если выбран Private) -->
+    <div id="allowedUsersSection" style="display:none;" class="mt-2">
+        <label>Добавить пользователя:</label>
+        <select id="addUserSelect" class="form-select">
+            @foreach (var user in (List<ApplicationUser>)ViewBag.AllUsers)
+            {
+                // Исключаем текущего пользователя (создателя шаблона)
+                if (user.Id == User.FindFirstValue(ClaimTypes.NameIdentifier))
+                {
+                    continue;
+                }
+                // Исключаем уже добавленных пользователей
+                if (Model.AllowedUsers != null && Model.AllowedUsers.Any(u => u.Id == user.Id))
+                {
+                    continue;
+                }
+                <option value="@user.Id">@user.Email</option>
+            }
+        </select>
+        <button type="button" id="addUserButton" class="btn btn-sm btn-primary mt-2">Добавить</button>
+
+        <h6 class="mt-3">Пользователи с доступом:</h6>
+        <table class="table table-sm table-bordered" id="allowedUsersTable">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Имя</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.AllowedUsers != null)
+                {
+                    foreach (var user in Model.AllowedUsers)
+                    {
+                        <tr data-userid="@user.Id">
+                            <td>@user.Email</td>
+                            <td>@user.UserName</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <button type="button" id="saveFormBtn" class="btn btn-primary mt-3">Сохранить шаблон</button>
+</form>
+
+@section Scripts {
+    <script src="https://unpkg.com/survey-core/survey.core.min.js"></script>
+    <script src="https://unpkg.com/survey-js-ui/survey-js-ui.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-core/survey-creator-core.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-js/survey-creator-js.min.js"></script>
+    <script src="https://unpkg.com/survey-core/themes/index.min.js"></script>
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+
+    <script>
+        // Инициализация конструктора SurveyJS Creator для создания шаблона
+        var creatorOptions = {
+            showLogicTab: true,
+            isAutoSave: false
+        };
+        var creator = new SurveyCreator.SurveyCreator(creatorOptions);
+        var jsonSchemaString = document.getElementById("JsonSchema").value;
+        var jsonSchema;
+        try {
+            jsonSchema = JSON.parse(jsonSchemaString);
+        } catch (e) {
+            console.error("Ошибка парсинга JSON-схемы:", e);
+            jsonSchema = { title: "Новый опрос", description: "Введите описание опроса", elements: [] };
+        }
+        creator.JSON = jsonSchema;
+        document.addEventListener("DOMContentLoaded", function () {
+            creator.render("surveyCreatorContainer");
+        });
+
+        // Показываем/скрываем блок выбора пользователей при изменении настройки доступа
+        $("#accessSettingSelect").on("change", function () {
+            if ($(this).val() === "false") {
+                $("#allowedUsersSection").show();
+            } else {
+                $("#allowedUsersSection").hide();
+            }
+        });
+
+        // Создаем массив для хранения ID добавленных пользователей
+        var allowedUsers = [];
+        // Если уже есть пользователи из модели, можно инициализировать массив (опционально)
+
+        // Обработчик для кнопки "Добавить пользователя"
+        $("#addUserButton").on("click", function (e) {
+            e.preventDefault();
+            var selectedUserId = $("#addUserSelect").val();
+            if (!selectedUserId) {
+                alert("Пожалуйста, выберите пользователя для добавления.");
+                return;
+            }
+            // Если пользователь уже добавлен, уведомляем об этом
+            if (allowedUsers.indexOf(selectedUserId) !== -1) {
+                alert("Пользователь уже добавлен.");
+                return;
+            }
+            // Получаем email выбранного пользователя
+            var selectedOption = $("#addUserSelect option:selected");
+            var userEmail = selectedOption.text();
+            // Добавляем пользователя в таблицу разрешенных
+            var newRow = "<tr data-userid='" + selectedUserId + "'><td>" + userEmail + "</td><td></td></tr>";
+            $("#allowedUsersTable tbody").append(newRow);
+            // Добавляем ID в массив
+            allowedUsers.push(selectedUserId);
+            // Удаляем выбранную опцию из select, чтобы не добавить повторно
+            $("#addUserSelect option:selected").remove();
+            // Обновляем скрытое поле с разрешенными пользователями
+            $("#AllowedUserIds").val(allowedUsers.join(","));
+        });
+
+        // Обработчик для кнопки "Сохранить шаблон"
+        $("#saveFormBtn").on("click", function () {
+            // Получаем обновлённую JSON-схему из конструктора
+            var updatedSchema = creator.JSON;
+            $("#JsonSchema").val(JSON.stringify(updatedSchema));
+            // Обновляем скрытое поле для разрешенных пользователей
+            $("#AllowedUserIds").val(allowedUsers.join(","));
+            // Отправляем форму
+            $("#templateForm").submit();
+        });
+    </script>
+}

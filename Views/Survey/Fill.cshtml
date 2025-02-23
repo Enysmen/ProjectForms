@@ -1,0 +1,91 @@
+﻿@using Microsoft.AspNetCore.Mvc.Localization
+@inject IViewLocalizer Localizer
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    ViewData["Title"] = "Заполнение формы";
+    bool isReadOnly = ViewBag.IsReadOnly != null && (bool)ViewBag.IsReadOnly;
+}
+
+<h2>@ViewData["Title"]</h2>
+
+
+<div id="surveyContainer"></div>
+
+
+<!-- Передаем данные для SurveyJS из Razor в глобальные переменные -->
+@{
+    var schemaJson = Newtonsoft.Json.JsonConvert.SerializeObject(ViewBag.JsonSchema);
+    var templateId = ViewBag.TemplateId != null ? ViewBag.TemplateId.ToString() : "";
+}
+
+@section Scripts {
+    <script src="https://unpkg.com/survey-core/survey.core.min.js"></script>
+    <script src="https://unpkg.com/survey-js-ui/survey-js-ui.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-core/survey-creator-core.min.js"></script>
+    <script src="https://unpkg.com/survey-creator-js/survey-creator-js.min.js"></script>
+
+
+
+    <script>
+        window.surveyJson = @Html.Raw(schemaJson);
+        window.templateId = '@templateId';
+    </script>
+
+
+
+
+    <script>
+
+        // Корректно сериализуем JSON-схему с сервера
+        var jsonSchema = @Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(ViewBag.JsonSchema));
+
+        // Создаем объект формы
+        var survey = new Survey.Model(jsonSchema);
+
+        // Передаем переменную isReadOnly как строку ("true" или "false")
+        var isReadOnlyFlag = '@isReadOnly'.toLowerCase();
+
+
+        // Обработчик завершения заполнения формы
+        survey.onComplete.add(function (result) {
+            if (isReadOnlyFlag === "true") {
+                alert("Вы можете только просматривать форму. Для заполнения формы войдите в систему.");
+                return;
+            }
+            // Создаем форму для отправки ответа на сервер
+            var form = document.createElement("form");
+            form.method = "post";
+            form.action = '@Url.Action("Submit", "Survey")';
+
+            // Передаем идентификатор шаблона формы
+            var templateIdInput = document.createElement("input");
+            templateIdInput.type = "hidden";
+            templateIdInput.name = "templateId";
+            templateIdInput.value = '@ViewBag.TemplateId';
+            form.appendChild(templateIdInput);
+
+            // Передаем данные ответа
+            var responseDataInput = document.createElement("input");
+            responseDataInput.type = "hidden";
+            responseDataInput.name = "responseData";
+            responseDataInput.value = JSON.stringify(result.data);
+            form.appendChild(responseDataInput);
+
+            // Добавляем токен защиты от CSRF
+            var antiforgery = document.createElement("input");
+            antiforgery.type = "hidden";
+            antiforgery.name = "__RequestVerificationToken";
+            antiforgery.value = '@Antiforgery.GetAndStoreTokens(Context).RequestToken';
+            form.appendChild(antiforgery);
+
+            document.body.appendChild(form);
+            form.submit();
+        });
+
+        // Инициализируем SurveyJS форму в контейнере с id "surveyContainer"
+        $("#surveyContainer").Survey({ model: survey });
+
+
+
+    </script>
+}
